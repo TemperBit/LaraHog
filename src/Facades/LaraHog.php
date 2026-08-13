@@ -8,6 +8,7 @@ use TemperBit\LaraHog\LaraHogManager;
 /**
  * @method static \TemperBit\LaraHog\LaraHog connection(?string $name = null)
  * @method static void capture(?string $distinctId, string $event, array<string, mixed> $properties = [], array<string, string> $groups = [])
+ * @method static void captureException(\Throwable|string $exception, ?string $distinctId = null, array<string, mixed> $properties = [], array<string, string> $groups = [])
  * @method static void identify(string $distinctId, array<string, mixed> $properties = [], array<string, string> $groups = [])
  * @method static void alias(string $distinctId, string $alias)
  * @method static void groupIdentify(string $groupType, string $groupKey, array<string, mixed> $properties = [])

@@ -16,11 +16,15 @@ it('returns the same default connection instance', function () {
     expect($a)->toBe($b);
 });
 
-it('resolves the manager as a singleton', function () {
+it('resolves the manager once per application scope', function () {
     $a = app(LaraHogManager::class);
     $b = app(LaraHogManager::class);
 
     expect($a)->toBe($b);
+
+    app()->forgetScopedInstances();
+
+    expect(app(LaraHogManager::class))->not->toBe($a);
 });
 
 it('reports enabled when project token is set', function () {

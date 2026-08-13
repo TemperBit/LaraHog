@@ -4,10 +4,12 @@ namespace TemperBit\LaraHog;
 
 use Illuminate\Support\Str;
 use PostHog\Client;
+use PostHog\ExceptionPayloadBuilder;
 use TemperBit\LaraHog\Jobs\AliasJob;
 use TemperBit\LaraHog\Jobs\CaptureJob;
 use TemperBit\LaraHog\Jobs\GroupIdentifyJob;
 use TemperBit\LaraHog\Jobs\IdentifyJob;
+use Throwable;
 
 class LaraHog
 {
@@ -48,12 +50,31 @@ class LaraHog
         }
 
         if ($this->shouldQueue()) {
-            CaptureJob::dispatch($this->connectionName, $distinctId, $event, $properties, $groups)
+            CaptureJob::dispatch($this->connectionName, $distinctId, $event, $properties, $groups, true)
                 ->onConnection($this->queueConnection())
                 ->onQueue($this->queueName());
         } else {
-            CaptureJob::dispatchSync($this->connectionName, $distinctId, $event, $properties, $groups);
+            CaptureJob::dispatchSync($this->connectionName, $distinctId, $event, $properties, $groups, false);
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $properties
+     * @param  array<string, string>  $groups
+     */
+    public function captureException(Throwable|string $exception, ?string $distinctId = null, array $properties = [], array $groups = []): void
+    {
+        $maxFrames = (int) ($this->config['sdk_options']['error_tracking']['max_frames'] ?? 20);
+        $exceptionList = ExceptionPayloadBuilder::buildExceptionList($exception, max(0, $maxFrames));
+
+        if ($exceptionList === []) {
+            return;
+        }
+
+        $this->capture($distinctId, '$exception', array_merge($properties, [
+            '$exception_list' => $exceptionList,
+            '$exception_handled' => ExceptionPayloadBuilder::getPrimaryHandled($exceptionList),
+        ]), $groups);
     }
 
     /**
@@ -67,11 +88,11 @@ class LaraHog
         }
 
         if ($this->shouldQueue()) {
-            IdentifyJob::dispatch($this->connectionName, $distinctId, $properties, $groups)
+            IdentifyJob::dispatch($this->connectionName, $distinctId, $properties, $groups, true)
                 ->onConnection($this->queueConnection())
                 ->onQueue($this->queueName());
         } else {
-            IdentifyJob::dispatchSync($this->connectionName, $distinctId, $properties, $groups);
+            IdentifyJob::dispatchSync($this->connectionName, $distinctId, $properties, $groups, false);
         }
     }
 
@@ -82,11 +103,11 @@ class LaraHog
         }
 
         if ($this->shouldQueue()) {
-            AliasJob::dispatch($this->connectionName, $distinctId, $alias)
+            AliasJob::dispatch($this->connectionName, $distinctId, $alias, true)
                 ->onConnection($this->queueConnection())
                 ->onQueue($this->queueName());
         } else {
-            AliasJob::dispatchSync($this->connectionName, $distinctId, $alias);
+            AliasJob::dispatchSync($this->connectionName, $distinctId, $alias, false);
         }
     }
 
@@ -100,11 +121,11 @@ class LaraHog
         }
 
         if ($this->shouldQueue()) {
-            GroupIdentifyJob::dispatch($this->connectionName, $groupType, $groupKey, $properties)
+            GroupIdentifyJob::dispatch($this->connectionName, $groupType, $groupKey, $properties, true)
                 ->onConnection($this->queueConnection())
                 ->onQueue($this->queueName());
         } else {
-            GroupIdentifyJob::dispatchSync($this->connectionName, $groupType, $groupKey, $properties);
+            GroupIdentifyJob::dispatchSync($this->connectionName, $groupType, $groupKey, $properties, false);
         }
     }
 
@@ -146,8 +167,9 @@ class LaraHog
 
     private function queueConnection(): ?string
     {
-        /** @var string|null */
-        return $this->config['queue']['connection'] ?? null;
+        $connection = $this->config['queue']['connection'] ?? null;
+
+        return filled($connection) ? (string) $connection : null;
     }
 
     private function queueName(): string

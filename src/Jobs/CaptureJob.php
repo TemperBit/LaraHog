@@ -2,12 +2,12 @@
 
 namespace TemperBit\LaraHog\Jobs;
 
-use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Foundation\Queue\Queueable;
 use TemperBit\LaraHog\LaraHogManager;
 
-class CaptureJob implements ShouldQueue
+class CaptureJob implements ShouldQueueAfterCommit
 {
     use Dispatchable, Queueable;
 
@@ -21,6 +21,7 @@ class CaptureJob implements ShouldQueue
         public readonly string $event,
         public readonly array $properties = [],
         public readonly array $groups = [],
+        public readonly bool $flushAfterHandling = false,
     ) {}
 
     public function handle(LaraHogManager $manager): void
@@ -42,5 +43,9 @@ class CaptureJob implements ShouldQueue
         }
 
         $larahog->getClient()->capture($message);
+
+        if ($this->flushAfterHandling) {
+            $larahog->flush();
+        }
     }
 }

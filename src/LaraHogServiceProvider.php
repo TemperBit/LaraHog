@@ -19,7 +19,7 @@ class LaraHogServiceProvider extends PackageServiceProvider
 
     public function packageRegistered(): void
     {
-        $this->app->singleton(LaraHogManager::class, function ($app) {
+        $this->app->scoped(LaraHogManager::class, function ($app) {
             return new LaraHogManager($app->make(ConfigRepository::class));
         });
 

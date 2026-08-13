@@ -2,12 +2,12 @@
 
 namespace TemperBit\LaraHog\Jobs;
 
-use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Foundation\Queue\Queueable;
 use TemperBit\LaraHog\LaraHogManager;
 
-class GroupIdentifyJob implements ShouldQueue
+class GroupIdentifyJob implements ShouldQueueAfterCommit
 {
     use Dispatchable, Queueable;
 
@@ -19,6 +19,7 @@ class GroupIdentifyJob implements ShouldQueue
         public readonly string $groupType,
         public readonly string $groupKey,
         public readonly array $properties = [],
+        public readonly bool $flushAfterHandling = false,
     ) {}
 
     public function handle(LaraHogManager $manager): void
@@ -38,5 +39,9 @@ class GroupIdentifyJob implements ShouldQueue
                 '$group_set' => $this->properties,
             ],
         ]);
+
+        if ($this->flushAfterHandling) {
+            $larahog->flush();
+        }
     }
 }
