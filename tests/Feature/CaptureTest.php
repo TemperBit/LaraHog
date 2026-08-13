@@ -1,7 +1,9 @@
 <?php
 
 use PostHog\Client;
+use TemperBit\LaraHog\Jobs\CaptureJob;
 use TemperBit\LaraHog\LaraHog;
+use TemperBit\LaraHog\LaraHogManager;
 
 it('calls capture on the posthog client', function () {
     $client = Mockery::mock(Client::class);
@@ -42,4 +44,17 @@ it('does not capture when disabled', function () {
     $reflection->setValue($larahog, $client);
 
     $larahog->capture('user-1', 'test-event');
+});
+
+it('flushes events after a queued capture is handled', function () {
+    $client = Mockery::mock(Client::class);
+    $client->shouldReceive('capture')->once()->andReturn(true);
+    $client->shouldReceive('flush')->once()->andReturn(true);
+
+    $larahog = app(LaraHog::class);
+    $reflection = new ReflectionProperty($larahog, 'client');
+    $reflection->setValue($larahog, $client);
+
+    (new CaptureJob('default', 'user-1', 'test-event', flushAfterHandling: true))
+        ->handle(app(LaraHogManager::class));
 });

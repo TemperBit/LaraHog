@@ -2,12 +2,12 @@
 
 namespace TemperBit\LaraHog\Jobs;
 
-use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Foundation\Queue\Queueable;
 use TemperBit\LaraHog\LaraHogManager;
 
-class IdentifyJob implements ShouldQueue
+class IdentifyJob implements ShouldQueueAfterCommit
 {
     use Dispatchable, Queueable;
 
@@ -20,6 +20,7 @@ class IdentifyJob implements ShouldQueue
         public readonly string $distinctId,
         public readonly array $properties = [],
         public readonly array $groups = [],
+        public readonly bool $flushAfterHandling = false,
     ) {}
 
     public function handle(LaraHogManager $manager): void
@@ -40,5 +41,9 @@ class IdentifyJob implements ShouldQueue
         }
 
         $larahog->getClient()->identify($message);
+
+        if ($this->flushAfterHandling) {
+            $larahog->flush();
+        }
     }
 }
