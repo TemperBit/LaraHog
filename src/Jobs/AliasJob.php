@@ -16,6 +16,7 @@ class AliasJob implements ShouldQueueAfterCommit
         public readonly string $distinctId,
         public readonly string $alias,
         public readonly bool $flushAfterHandling = false,
+        public readonly int|float|string|null $timestamp = null,
     ) {}
 
     public function handle(LaraHogManager $manager): void
@@ -26,10 +27,16 @@ class AliasJob implements ShouldQueueAfterCommit
             return;
         }
 
-        $larahog->getClient()->alias([
+        $message = [
             'distinct_id' => $this->distinctId,
             'alias' => $this->alias,
-        ]);
+        ];
+
+        if ($this->timestamp !== null) {
+            $message['timestamp'] = $this->timestamp;
+        }
+
+        $larahog->getClient()->alias($message);
 
         if ($this->flushAfterHandling) {
             $larahog->flush();

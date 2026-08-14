@@ -95,7 +95,16 @@ LaraHog::capture('user-123', 'report_exported', [], [
 
 // Anonymous event
 LaraHog::capture(null, 'landing_page_viewed');
+
+// Historical event time (DateTimeInterface, Unix timestamp, or ISO 8601 string)
+LaraHog::capture(
+    'user-123',
+    'package_downloaded',
+    timestamp: $downloadedAt,
+);
 ```
+
+LaraHog records the timestamp when each operation is requested, before any queue delay. Pass the optional `timestamp` argument to `capture`, `captureException`, `identify`, `alias`, or `groupIdentify` when importing historical events.
 
 ### Identifying users
 

@@ -20,6 +20,7 @@ class GroupIdentifyJob implements ShouldQueueAfterCommit
         public readonly string $groupKey,
         public readonly array $properties = [],
         public readonly bool $flushAfterHandling = false,
+        public readonly int|float|string|null $timestamp = null,
     ) {}
 
     public function handle(LaraHogManager $manager): void
@@ -30,7 +31,7 @@ class GroupIdentifyJob implements ShouldQueueAfterCommit
             return;
         }
 
-        $larahog->getClient()->capture([
+        $message = [
             'distinct_id' => "\${$this->groupType}_{$this->groupKey}",
             'event' => '$groupidentify',
             'properties' => [
@@ -38,7 +39,13 @@ class GroupIdentifyJob implements ShouldQueueAfterCommit
                 '$group_key' => $this->groupKey,
                 '$group_set' => $this->properties,
             ],
-        ]);
+        ];
+
+        if ($this->timestamp !== null) {
+            $message['timestamp'] = $this->timestamp;
+        }
+
+        $larahog->getClient()->capture($message);
 
         if ($this->flushAfterHandling) {
             $larahog->flush();

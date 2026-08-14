@@ -21,6 +21,7 @@ class IdentifyJob implements ShouldQueueAfterCommit
         public readonly array $properties = [],
         public readonly array $groups = [],
         public readonly bool $flushAfterHandling = false,
+        public readonly int|float|string|null $timestamp = null,
     ) {}
 
     public function handle(LaraHogManager $manager): void
@@ -38,6 +39,10 @@ class IdentifyJob implements ShouldQueueAfterCommit
 
         if ($this->groups !== []) {
             $message['$groups'] = $this->groups;
+        }
+
+        if ($this->timestamp !== null) {
+            $message['timestamp'] = $this->timestamp;
         }
 
         $larahog->getClient()->identify($message);

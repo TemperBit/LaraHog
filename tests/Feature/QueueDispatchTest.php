@@ -23,7 +23,15 @@ it('dispatches analytics jobs after database transactions commit', function (obj
 ]);
 
 it('dispatches CaptureJob when dispatch mode is queue', function () {
-    app(LaraHog::class)->capture('user-1', 'test-event', ['key' => 'value'], ['company' => 'acme']);
+    $timestamp = new DateTimeImmutable('2025-04-03T02:01:00.123456+00:00');
+
+    app(LaraHog::class)->capture(
+        'user-1',
+        'test-event',
+        ['key' => 'value'],
+        ['company' => 'acme'],
+        $timestamp,
+    );
 
     Queue::assertPushed(CaptureJob::class, function (CaptureJob $job) {
         return $job->connectionName === 'default'
@@ -31,54 +39,76 @@ it('dispatches CaptureJob when dispatch mode is queue', function () {
             && $job->event === 'test-event'
             && $job->properties === ['key' => 'value']
             && $job->groups === ['company' => 'acme']
+            && $job->timestamp === '2025-04-03T02:01:00.123456+00:00'
             && $job->flushAfterHandling;
     });
+});
+
+it('records capture time before a queued event is handled', function () {
+    $beforeCapture = microtime(true);
+
+    app(LaraHog::class)->capture('user-1', 'test-event');
+
+    $afterCapture = microtime(true);
+
+    Queue::assertPushed(CaptureJob::class, fn (CaptureJob $job): bool => is_float($job->timestamp)
+        && $job->timestamp >= $beforeCapture
+        && $job->timestamp <= $afterCapture);
 });
 
 it('normalizes exceptions before dispatching them to the queue', function () {
     app(LaraHog::class)->captureException(new RuntimeException('Something failed'), 'user-1', [
         'route' => 'dashboard',
-    ]);
+    ], timestamp: '2025-04-03T02:01:00+00:00');
 
     Queue::assertPushed(CaptureJob::class, function (CaptureJob $job) {
         return $job->event === '$exception'
             && $job->distinctId === 'user-1'
             && $job->properties['route'] === 'dashboard'
             && $job->properties['$exception_list'][0]['type'] === RuntimeException::class
-            && $job->properties['$exception_list'][0]['value'] === 'Something failed';
+            && $job->properties['$exception_list'][0]['value'] === 'Something failed'
+            && $job->timestamp === '2025-04-03T02:01:00+00:00';
     });
 });
 
 it('dispatches IdentifyJob when dispatch mode is queue', function () {
-    app(LaraHog::class)->identify('user-1', ['name' => 'John']);
+    app(LaraHog::class)->identify('user-1', ['name' => 'John'], timestamp: 1743645660);
 
     Queue::assertPushed(IdentifyJob::class, function (IdentifyJob $job) {
         return $job->connectionName === 'default'
             && $job->distinctId === 'user-1'
             && $job->properties === ['name' => 'John']
+            && $job->timestamp === 1743645660
             && $job->flushAfterHandling;
     });
 });
 
 it('dispatches AliasJob when dispatch mode is queue', function () {
-    app(LaraHog::class)->alias('user-1', 'anon-abc');
+    app(LaraHog::class)->alias('user-1', 'anon-abc', 1743645660.123);
 
     Queue::assertPushed(AliasJob::class, function (AliasJob $job) {
         return $job->connectionName === 'default'
             && $job->distinctId === 'user-1'
             && $job->alias === 'anon-abc'
+            && $job->timestamp === 1743645660.123
             && $job->flushAfterHandling;
     });
 });
 
 it('dispatches GroupIdentifyJob when dispatch mode is queue', function () {
-    app(LaraHog::class)->groupIdentify('company', 'acme', ['name' => 'Acme Inc']);
+    app(LaraHog::class)->groupIdentify(
+        'company',
+        'acme',
+        ['name' => 'Acme Inc'],
+        '2025-04-03T02:01:00+00:00',
+    );
 
     Queue::assertPushed(GroupIdentifyJob::class, function (GroupIdentifyJob $job) {
         return $job->connectionName === 'default'
             && $job->groupType === 'company'
             && $job->groupKey === 'acme'
             && $job->properties === ['name' => 'Acme Inc']
+            && $job->timestamp === '2025-04-03T02:01:00+00:00'
             && $job->flushAfterHandling;
     });
 });

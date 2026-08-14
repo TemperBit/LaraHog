@@ -10,14 +10,20 @@ it('calls capture on the posthog client', function () {
     $client->shouldReceive('capture')->once()->with(Mockery::on(function (array $message) {
         return $message['distinct_id'] === 'user-1'
             && $message['event'] === 'test-event'
-            && $message['properties'] === ['key' => 'value'];
+            && $message['properties'] === ['key' => 'value']
+            && $message['timestamp'] === '2025-04-03T02:01:00+00:00';
     }))->andReturn(true);
 
     $larahog = app(LaraHog::class);
     $reflection = new ReflectionProperty($larahog, 'client');
     $reflection->setValue($larahog, $client);
 
-    $larahog->capture('user-1', 'test-event', ['key' => 'value']);
+    $larahog->capture(
+        'user-1',
+        'test-event',
+        ['key' => 'value'],
+        timestamp: '2025-04-03T02:01:00+00:00',
+    );
 });
 
 it('includes groups in capture message', function () {
@@ -55,6 +61,12 @@ it('flushes events after a queued capture is handled', function () {
     $reflection = new ReflectionProperty($larahog, 'client');
     $reflection->setValue($larahog, $client);
 
-    (new CaptureJob('default', 'user-1', 'test-event', flushAfterHandling: true))
+    (new CaptureJob(
+        'default',
+        'user-1',
+        'test-event',
+        flushAfterHandling: true,
+        timestamp: '2025-04-03T02:01:00+00:00',
+    ))
         ->handle(app(LaraHogManager::class));
 });
