@@ -2,6 +2,7 @@
 
 namespace TemperBit\LaraHog;
 
+use DateTimeInterface;
 use Illuminate\Support\Str;
 use PostHog\Client;
 use PostHog\ExceptionPayloadBuilder;
@@ -38,8 +39,13 @@ class LaraHog
      * @param  array<string, mixed>  $properties
      * @param  array<string, string>  $groups
      */
-    public function capture(?string $distinctId, string $event, array $properties = [], array $groups = []): void
-    {
+    public function capture(
+        ?string $distinctId,
+        string $event,
+        array $properties = [],
+        array $groups = [],
+        DateTimeInterface|int|float|string|null $timestamp = null,
+    ): void {
         if (! $this->isEnabled()) {
             return;
         }
@@ -50,11 +56,27 @@ class LaraHog
         }
 
         if ($this->shouldQueue()) {
-            CaptureJob::dispatch($this->connectionName, $distinctId, $event, $properties, $groups, true)
+            CaptureJob::dispatch(
+                $this->connectionName,
+                $distinctId,
+                $event,
+                $properties,
+                $groups,
+                true,
+                $this->resolveTimestamp($timestamp),
+            )
                 ->onConnection($this->queueConnection())
                 ->onQueue($this->queueName());
         } else {
-            CaptureJob::dispatchSync($this->connectionName, $distinctId, $event, $properties, $groups, false);
+            CaptureJob::dispatchSync(
+                $this->connectionName,
+                $distinctId,
+                $event,
+                $properties,
+                $groups,
+                false,
+                $this->resolveTimestamp($timestamp),
+            );
         }
     }
 
@@ -62,8 +84,13 @@ class LaraHog
      * @param  array<string, mixed>  $properties
      * @param  array<string, string>  $groups
      */
-    public function captureException(Throwable|string $exception, ?string $distinctId = null, array $properties = [], array $groups = []): void
-    {
+    public function captureException(
+        Throwable|string $exception,
+        ?string $distinctId = null,
+        array $properties = [],
+        array $groups = [],
+        DateTimeInterface|int|float|string|null $timestamp = null,
+    ): void {
         $maxFrames = (int) ($this->config['sdk_options']['error_tracking']['max_frames'] ?? 20);
         $exceptionList = ExceptionPayloadBuilder::buildExceptionList($exception, max(0, $maxFrames));
 
@@ -74,58 +101,109 @@ class LaraHog
         $this->capture($distinctId, '$exception', array_merge($properties, [
             '$exception_list' => $exceptionList,
             '$exception_handled' => ExceptionPayloadBuilder::getPrimaryHandled($exceptionList),
-        ]), $groups);
+        ]), $groups, $timestamp);
     }
 
     /**
      * @param  array<string, mixed>  $properties
      * @param  array<string, string>  $groups
      */
-    public function identify(string $distinctId, array $properties = [], array $groups = []): void
-    {
+    public function identify(
+        string $distinctId,
+        array $properties = [],
+        array $groups = [],
+        DateTimeInterface|int|float|string|null $timestamp = null,
+    ): void {
         if (! $this->isEnabled()) {
             return;
         }
 
         if ($this->shouldQueue()) {
-            IdentifyJob::dispatch($this->connectionName, $distinctId, $properties, $groups, true)
+            IdentifyJob::dispatch(
+                $this->connectionName,
+                $distinctId,
+                $properties,
+                $groups,
+                true,
+                $this->resolveTimestamp($timestamp),
+            )
                 ->onConnection($this->queueConnection())
                 ->onQueue($this->queueName());
         } else {
-            IdentifyJob::dispatchSync($this->connectionName, $distinctId, $properties, $groups, false);
+            IdentifyJob::dispatchSync(
+                $this->connectionName,
+                $distinctId,
+                $properties,
+                $groups,
+                false,
+                $this->resolveTimestamp($timestamp),
+            );
         }
     }
 
-    public function alias(string $distinctId, string $alias): void
-    {
+    public function alias(
+        string $distinctId,
+        string $alias,
+        DateTimeInterface|int|float|string|null $timestamp = null,
+    ): void {
         if (! $this->isEnabled()) {
             return;
         }
 
         if ($this->shouldQueue()) {
-            AliasJob::dispatch($this->connectionName, $distinctId, $alias, true)
+            AliasJob::dispatch(
+                $this->connectionName,
+                $distinctId,
+                $alias,
+                true,
+                $this->resolveTimestamp($timestamp),
+            )
                 ->onConnection($this->queueConnection())
                 ->onQueue($this->queueName());
         } else {
-            AliasJob::dispatchSync($this->connectionName, $distinctId, $alias, false);
+            AliasJob::dispatchSync(
+                $this->connectionName,
+                $distinctId,
+                $alias,
+                false,
+                $this->resolveTimestamp($timestamp),
+            );
         }
     }
 
     /**
      * @param  array<string, mixed>  $properties
      */
-    public function groupIdentify(string $groupType, string $groupKey, array $properties = []): void
-    {
+    public function groupIdentify(
+        string $groupType,
+        string $groupKey,
+        array $properties = [],
+        DateTimeInterface|int|float|string|null $timestamp = null,
+    ): void {
         if (! $this->isEnabled()) {
             return;
         }
 
         if ($this->shouldQueue()) {
-            GroupIdentifyJob::dispatch($this->connectionName, $groupType, $groupKey, $properties, true)
+            GroupIdentifyJob::dispatch(
+                $this->connectionName,
+                $groupType,
+                $groupKey,
+                $properties,
+                true,
+                $this->resolveTimestamp($timestamp),
+            )
                 ->onConnection($this->queueConnection())
                 ->onQueue($this->queueName());
         } else {
-            GroupIdentifyJob::dispatchSync($this->connectionName, $groupType, $groupKey, $properties, false);
+            GroupIdentifyJob::dispatchSync(
+                $this->connectionName,
+                $groupType,
+                $groupKey,
+                $properties,
+                false,
+                $this->resolveTimestamp($timestamp),
+            );
         }
     }
 
@@ -176,5 +254,15 @@ class LaraHog
     {
         /** @var string */
         return $this->config['queue']['name'] ?? 'default';
+    }
+
+    private function resolveTimestamp(
+        DateTimeInterface|int|float|string|null $timestamp,
+    ): int|float|string {
+        if ($timestamp instanceof DateTimeInterface) {
+            return $timestamp->format('Y-m-d\TH:i:s.uP');
+        }
+
+        return $timestamp ?? microtime(true);
     }
 }
