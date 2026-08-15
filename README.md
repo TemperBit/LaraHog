@@ -102,9 +102,33 @@ LaraHog::capture(
     'package_downloaded',
     timestamp: $downloadedAt,
 );
+
 ```
 
 LaraHog records the timestamp when each operation is requested, before any queue delay. Pass the optional `timestamp` argument to `capture`, `captureException`, `identify`, `alias`, or `groupIdentify` when importing historical events.
+
+### Capturing batches
+
+Use `captureBatch` to queue multiple events for one PostHog batch. Set `historicalMigration` when backfilling old events so LaraHog sends the batch through PostHog's historical ingestion pipeline.
+
+```php
+LaraHog::captureBatch([
+    [
+        'distinctId' => 'user-123',
+        'event' => 'package_downloaded',
+        'properties' => ['package' => 'agent'],
+        'timestamp' => $firstDownloadAt,
+    ],
+    [
+        'distinctId' => 'user-456',
+        'event' => 'package_downloaded',
+        'properties' => ['package' => 'sensor'],
+        'timestamp' => $secondDownloadAt,
+    ],
+], historicalMigration: true);
+```
+
+Historical batches are isolated from buffered live events and carry PostHog's top-level `historical_migration` flag.
 
 ### Identifying users
 
@@ -113,6 +137,15 @@ LaraHog::identify('user-123', [
     'name' => 'Jane Doe',
     'email' => 'jane@example.com',
     'plan' => 'enterprise',
+]);
+```
+
+Use `identifyBatch` to identify multiple users through one PostHog batch request:
+
+```php
+LaraHog::identifyBatch([
+    ['distinctId' => 'user-123', 'properties' => ['name' => 'Jane Doe']],
+    ['distinctId' => 'user-456', 'properties' => ['name' => 'John Doe']],
 ]);
 ```
 
@@ -128,6 +161,15 @@ LaraHog::alias('user-123', 'anonymous-session-abc');
 LaraHog::groupIdentify('company', 'company-456', [
     'name' => 'Acme Corp',
     'industry' => 'SaaS',
+]);
+```
+
+Use `groupIdentifyBatch` to identify multiple groups through one PostHog batch request:
+
+```php
+LaraHog::groupIdentifyBatch([
+    ['groupType' => 'company', 'groupKey' => 'company-456', 'properties' => ['name' => 'Acme Corp']],
+    ['groupType' => 'company', 'groupKey' => 'company-789', 'properties' => ['name' => 'Globex Corp']],
 ]);
 ```
 

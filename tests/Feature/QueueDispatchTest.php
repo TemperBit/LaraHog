@@ -2,9 +2,12 @@
 
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use TemperBit\LaraHog\Jobs\AliasJob;
+use TemperBit\LaraHog\Jobs\CaptureBatchJob;
 use TemperBit\LaraHog\Jobs\CaptureJob;
 use TemperBit\LaraHog\Jobs\GroupIdentifyJob;
+use TemperBit\LaraHog\Jobs\IdentifyBatchJob;
 use TemperBit\LaraHog\Jobs\IdentifyJob;
 use TemperBit\LaraHog\LaraHog;
 
@@ -17,10 +20,77 @@ it('dispatches analytics jobs after database transactions commit', function (obj
     expect($job)->toBeInstanceOf(ShouldQueueAfterCommit::class);
 })->with([
     'capture' => fn () => new CaptureJob('default', 'user-1', 'test-event'),
+    'capture batch' => fn () => new CaptureBatchJob('default', []),
     'identify' => fn () => new IdentifyJob('default', 'user-1'),
+    'identify batch' => fn () => new IdentifyBatchJob('default', []),
     'alias' => fn () => new AliasJob('default', 'user-1', 'anonymous-user'),
     'group identify' => fn () => new GroupIdentifyJob('default', 'company', 'company-1'),
 ]);
+
+it('dispatches one job for a capture batch', function () {
+    app(LaraHog::class)->captureBatch([
+        ['distinctId' => 'user-1', 'event' => 'first-event'],
+        ['distinctId' => 'user-2', 'event' => 'second-event'],
+    ], historicalMigration: true);
+
+    Queue::assertPushed(CaptureBatchJob::class, function (CaptureBatchJob $job): bool {
+        return count($job->messages) === 2
+            && $job->messages[0]['distinct_id'] === 'user-1'
+            && $job->messages[1]['distinct_id'] === 'user-2'
+            && $job->historicalMigration
+            && $job->flushAfterHandling;
+    });
+});
+
+it('creates a personless distinct ID for anonymous capture batch items', function () {
+    app(LaraHog::class)->captureBatch([
+        ['event' => 'anonymous-event'],
+    ]);
+
+    Queue::assertPushed(CaptureBatchJob::class, function (CaptureBatchJob $job): bool {
+        return Str::isUuid($job->messages[0]['distinct_id'])
+            && $job->messages[0]['properties']['$process_person_profile'] === false;
+    });
+});
+
+it('dispatches one job for an identify batch', function () {
+    app(LaraHog::class)->identifyBatch([
+        ['distinctId' => 'user-1', 'properties' => ['name' => 'Jane']],
+        ['distinctId' => 'user-2', 'properties' => ['name' => 'John']],
+    ]);
+
+    Queue::assertPushed(IdentifyBatchJob::class, function (IdentifyBatchJob $job): bool {
+        return count($job->messages) === 2
+            && $job->messages[0]['distinct_id'] === 'user-1'
+            && $job->messages[1]['distinct_id'] === 'user-2'
+            && $job->flushAfterHandling;
+    });
+});
+
+it('rejects identify batch items without a distinct ID', function () {
+    expect(fn () => app(LaraHog::class)->identifyBatch([
+        ['properties' => ['name' => 'Anonymous']],
+    ]))->toThrow(
+        InvalidArgumentException::class,
+        'Each identity batch item must include a distinctId.',
+    );
+});
+
+it('dispatches one capture batch job for a group identify batch', function () {
+    app(LaraHog::class)->groupIdentifyBatch([
+        ['groupType' => 'company', 'groupKey' => 'acme', 'properties' => ['name' => 'Acme']],
+        ['groupType' => 'company', 'groupKey' => 'globex', 'properties' => ['name' => 'Globex']],
+    ]);
+
+    Queue::assertPushed(CaptureBatchJob::class, function (CaptureBatchJob $job): bool {
+        return count($job->messages) === 2
+            && $job->messages[0]['event'] === '$groupidentify'
+            && $job->messages[0]['properties']['$group_key'] === 'acme'
+            && $job->messages[1]['properties']['$group_key'] === 'globex'
+            && ! $job->historicalMigration
+            && $job->flushAfterHandling;
+    });
+});
 
 it('dispatches CaptureJob when dispatch mode is queue', function () {
     $timestamp = new DateTimeImmutable('2025-04-03T02:01:00.123456+00:00');

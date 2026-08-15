@@ -4,17 +4,22 @@ namespace TemperBit\LaraHog;
 
 use DateTimeInterface;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 use PostHog\Client;
 use PostHog\ExceptionPayloadBuilder;
 use TemperBit\LaraHog\Jobs\AliasJob;
+use TemperBit\LaraHog\Jobs\CaptureBatchJob;
 use TemperBit\LaraHog\Jobs\CaptureJob;
 use TemperBit\LaraHog\Jobs\GroupIdentifyJob;
+use TemperBit\LaraHog\Jobs\IdentifyBatchJob;
 use TemperBit\LaraHog\Jobs\IdentifyJob;
 use Throwable;
 
 class LaraHog
 {
     private ?Client $client = null;
+
+    private ?Client $historicalMigrationClient = null;
 
     /**
      * @param  array<string, mixed>  $config
@@ -81,6 +86,58 @@ class LaraHog
     }
 
     /**
+     * @param  list<array{
+     *     distinctId?: string|null,
+     *     event: string,
+     *     properties?: array<string, mixed>,
+     *     groups?: array<string, string>,
+     *     timestamp?: DateTimeInterface|int|float|string|null
+     * }>  $events
+     */
+    public function captureBatch(array $events, bool $historicalMigration = false): void
+    {
+        if (! $this->isEnabled() || $events === []) {
+            return;
+        }
+
+        $messages = array_map(function (array $event): array {
+            $distinctId = $event['distinctId'] ?? null;
+            $properties = $event['properties'] ?? [];
+
+            if ($distinctId === null) {
+                $distinctId = (string) Str::uuid();
+                $properties['$process_person_profile'] = false;
+            }
+
+            return [
+                'distinct_id' => $distinctId,
+                'event' => $event['event'],
+                'properties' => $properties,
+                'groups' => $event['groups'] ?? [],
+                'timestamp' => $this->resolveTimestamp($event['timestamp'] ?? null),
+            ];
+        }, $events);
+
+        if ($this->shouldQueue()) {
+            CaptureBatchJob::dispatch(
+                $this->connectionName,
+                $messages,
+                true,
+                $historicalMigration,
+            )
+                ->onConnection($this->queueConnection())
+                ->onQueue($this->queueName());
+        } else {
+            CaptureBatchJob::dispatchSync(
+                $this->connectionName,
+                $messages,
+                $historicalMigration,
+                $historicalMigration,
+            );
+        }
+    }
+
+    /**
      * @param  array<string, mixed>  $properties
      * @param  array<string, string>  $groups
      */
@@ -137,6 +194,51 @@ class LaraHog
                 $groups,
                 false,
                 $this->resolveTimestamp($timestamp),
+            );
+        }
+    }
+
+    /**
+     * @param  list<array{
+     *     distinctId?: string|null,
+     *     properties?: array<string, mixed>,
+     *     groups?: array<string, string>,
+     *     timestamp?: DateTimeInterface|int|float|string|null
+     * }>  $identities
+     */
+    public function identifyBatch(array $identities): void
+    {
+        if (! $this->isEnabled() || $identities === []) {
+            return;
+        }
+
+        $messages = array_map(function (array $identity): array {
+            $distinctId = $identity['distinctId'] ?? null;
+
+            if ($distinctId === null) {
+                throw new InvalidArgumentException('Each identity batch item must include a distinctId.');
+            }
+
+            return [
+                'distinct_id' => $distinctId,
+                'properties' => $identity['properties'] ?? [],
+                'groups' => $identity['groups'] ?? [],
+                'timestamp' => $this->resolveTimestamp($identity['timestamp'] ?? null),
+            ];
+        }, $identities);
+
+        if ($this->shouldQueue()) {
+            IdentifyBatchJob::dispatch(
+                $this->connectionName,
+                $messages,
+                true,
+            )
+                ->onConnection($this->queueConnection())
+                ->onQueue($this->queueName());
+        } else {
+            IdentifyBatchJob::dispatchSync(
+                $this->connectionName,
+                $messages,
             );
         }
     }
@@ -207,6 +309,28 @@ class LaraHog
         }
     }
 
+    /**
+     * @param  list<array{
+     *     groupType: string,
+     *     groupKey: string,
+     *     properties?: array<string, mixed>,
+     *     timestamp?: DateTimeInterface|int|float|string|null
+     * }>  $groups
+     */
+    public function groupIdentifyBatch(array $groups): void
+    {
+        $this->captureBatch(array_map(fn (array $group): array => [
+            'distinctId' => "\${$group['groupType']}_{$group['groupKey']}",
+            'event' => '$groupidentify',
+            'properties' => [
+                '$group_type' => $group['groupType'],
+                '$group_key' => $group['groupKey'],
+                '$group_set' => $group['properties'] ?? [],
+            ],
+            'timestamp' => $group['timestamp'] ?? null,
+        ], $groups));
+    }
+
     public function getClient(): Client
     {
         if ($this->client === null) {
@@ -216,10 +340,23 @@ class LaraHog
         return $this->client;
     }
 
+    public function getHistoricalMigrationClient(): Client
+    {
+        if ($this->historicalMigrationClient === null) {
+            $this->historicalMigrationClient = $this->createHistoricalMigrationClient();
+        }
+
+        return $this->historicalMigrationClient;
+    }
+
     public function flush(): void
     {
         if ($this->client !== null) {
             $this->client->flush();
+        }
+
+        if ($this->historicalMigrationClient !== null) {
+            $this->historicalMigrationClient->flush();
         }
     }
 
@@ -233,6 +370,21 @@ class LaraHog
         ]);
 
         return new Client(
+            apiKey: (string) ($this->config['project_token'] ?? ''),
+            options: $options,
+        );
+    }
+
+    private function createHistoricalMigrationClient(): Client
+    {
+        /** @var array<string, mixed> $sdkOptions */
+        $sdkOptions = $this->config['sdk_options'] ?? [];
+
+        $options = array_merge($sdkOptions, [
+            'host' => $this->config['host'] ?? 'https://us.i.posthog.com',
+        ]);
+
+        return new HistoricalMigrationClient(
             apiKey: (string) ($this->config['project_token'] ?? ''),
             options: $options,
         );
