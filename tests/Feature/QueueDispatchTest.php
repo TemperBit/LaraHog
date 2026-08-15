@@ -2,6 +2,7 @@
 
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use TemperBit\LaraHog\Jobs\AliasJob;
 use TemperBit\LaraHog\Jobs\CaptureBatchJob;
 use TemperBit\LaraHog\Jobs\CaptureJob;
@@ -41,6 +42,17 @@ it('dispatches one job for a capture batch', function () {
     });
 });
 
+it('creates a personless distinct ID for anonymous capture batch items', function () {
+    app(LaraHog::class)->captureBatch([
+        ['event' => 'anonymous-event'],
+    ]);
+
+    Queue::assertPushed(CaptureBatchJob::class, function (CaptureBatchJob $job): bool {
+        return Str::isUuid($job->messages[0]['distinct_id'])
+            && $job->messages[0]['properties']['$process_person_profile'] === false;
+    });
+});
+
 it('dispatches one job for an identify batch', function () {
     app(LaraHog::class)->identifyBatch([
         ['distinctId' => 'user-1', 'properties' => ['name' => 'Jane']],
@@ -53,6 +65,15 @@ it('dispatches one job for an identify batch', function () {
             && $job->messages[1]['distinct_id'] === 'user-2'
             && $job->flushAfterHandling;
     });
+});
+
+it('rejects identify batch items without a distinct ID', function () {
+    expect(fn () => app(LaraHog::class)->identifyBatch([
+        ['properties' => ['name' => 'Anonymous']],
+    ]))->toThrow(
+        InvalidArgumentException::class,
+        'Each identity batch item must include a distinctId.',
+    );
 });
 
 it('dispatches one capture batch job for a group identify batch', function () {

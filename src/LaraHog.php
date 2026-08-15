@@ -4,6 +4,7 @@ namespace TemperBit\LaraHog;
 
 use DateTimeInterface;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 use PostHog\Client;
 use PostHog\ExceptionPayloadBuilder;
 use TemperBit\LaraHog\Jobs\AliasJob;
@@ -86,7 +87,7 @@ class LaraHog
 
     /**
      * @param  list<array{
-     *     distinctId: string|null,
+     *     distinctId?: string|null,
      *     event: string,
      *     properties?: array<string, mixed>,
      *     groups?: array<string, string>,
@@ -100,7 +101,7 @@ class LaraHog
         }
 
         $messages = array_map(function (array $event): array {
-            $distinctId = $event['distinctId'];
+            $distinctId = $event['distinctId'] ?? null;
             $properties = $event['properties'] ?? [];
 
             if ($distinctId === null) {
@@ -199,7 +200,7 @@ class LaraHog
 
     /**
      * @param  list<array{
-     *     distinctId: string,
+     *     distinctId?: string|null,
      *     properties?: array<string, mixed>,
      *     groups?: array<string, string>,
      *     timestamp?: DateTimeInterface|int|float|string|null
@@ -211,12 +212,20 @@ class LaraHog
             return;
         }
 
-        $messages = array_map(fn (array $identity): array => [
-            'distinct_id' => $identity['distinctId'],
-            'properties' => $identity['properties'] ?? [],
-            'groups' => $identity['groups'] ?? [],
-            'timestamp' => $this->resolveTimestamp($identity['timestamp'] ?? null),
-        ], $identities);
+        $messages = array_map(function (array $identity): array {
+            $distinctId = $identity['distinctId'] ?? null;
+
+            if ($distinctId === null) {
+                throw new InvalidArgumentException('Each identity batch item must include a distinctId.');
+            }
+
+            return [
+                'distinct_id' => $distinctId,
+                'properties' => $identity['properties'] ?? [],
+                'groups' => $identity['groups'] ?? [],
+                'timestamp' => $this->resolveTimestamp($identity['timestamp'] ?? null),
+            ];
+        }, $identities);
 
         if ($this->shouldQueue()) {
             IdentifyBatchJob::dispatch(
