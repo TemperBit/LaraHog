@@ -3,6 +3,7 @@
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Support\Facades\Queue;
 use TemperBit\LaraHog\Jobs\AliasJob;
+use TemperBit\LaraHog\Jobs\CaptureBatchJob;
 use TemperBit\LaraHog\Jobs\CaptureJob;
 use TemperBit\LaraHog\Jobs\GroupIdentifyJob;
 use TemperBit\LaraHog\Jobs\IdentifyJob;
@@ -17,10 +18,26 @@ it('dispatches analytics jobs after database transactions commit', function (obj
     expect($job)->toBeInstanceOf(ShouldQueueAfterCommit::class);
 })->with([
     'capture' => fn () => new CaptureJob('default', 'user-1', 'test-event'),
+    'capture batch' => fn () => new CaptureBatchJob('default', []),
     'identify' => fn () => new IdentifyJob('default', 'user-1'),
     'alias' => fn () => new AliasJob('default', 'user-1', 'anonymous-user'),
     'group identify' => fn () => new GroupIdentifyJob('default', 'company', 'company-1'),
 ]);
+
+it('dispatches one job for a capture batch', function () {
+    app(LaraHog::class)->captureBatch([
+        ['distinctId' => 'user-1', 'event' => 'first-event'],
+        ['distinctId' => 'user-2', 'event' => 'second-event'],
+    ], historicalMigration: true);
+
+    Queue::assertPushed(CaptureBatchJob::class, function (CaptureBatchJob $job): bool {
+        return count($job->messages) === 2
+            && $job->messages[0]['distinct_id'] === 'user-1'
+            && $job->messages[1]['distinct_id'] === 'user-2'
+            && $job->historicalMigration
+            && $job->flushAfterHandling;
+    });
+});
 
 it('dispatches CaptureJob when dispatch mode is queue', function () {
     $timestamp = new DateTimeImmutable('2025-04-03T02:01:00.123456+00:00');
