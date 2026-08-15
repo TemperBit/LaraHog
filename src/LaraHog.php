@@ -10,6 +10,7 @@ use TemperBit\LaraHog\Jobs\AliasJob;
 use TemperBit\LaraHog\Jobs\CaptureBatchJob;
 use TemperBit\LaraHog\Jobs\CaptureJob;
 use TemperBit\LaraHog\Jobs\GroupIdentifyJob;
+use TemperBit\LaraHog\Jobs\IdentifyBatchJob;
 use TemperBit\LaraHog\Jobs\IdentifyJob;
 use Throwable;
 
@@ -196,6 +197,43 @@ class LaraHog
         }
     }
 
+    /**
+     * @param  list<array{
+     *     distinctId: string,
+     *     properties?: array<string, mixed>,
+     *     groups?: array<string, string>,
+     *     timestamp?: DateTimeInterface|int|float|string|null
+     * }>  $identities
+     */
+    public function identifyBatch(array $identities): void
+    {
+        if (! $this->isEnabled() || $identities === []) {
+            return;
+        }
+
+        $messages = array_map(fn (array $identity): array => [
+            'distinct_id' => $identity['distinctId'],
+            'properties' => $identity['properties'] ?? [],
+            'groups' => $identity['groups'] ?? [],
+            'timestamp' => $this->resolveTimestamp($identity['timestamp'] ?? null),
+        ], $identities);
+
+        if ($this->shouldQueue()) {
+            IdentifyBatchJob::dispatch(
+                $this->connectionName,
+                $messages,
+                true,
+            )
+                ->onConnection($this->queueConnection())
+                ->onQueue($this->queueName());
+        } else {
+            IdentifyBatchJob::dispatchSync(
+                $this->connectionName,
+                $messages,
+            );
+        }
+    }
+
     public function alias(
         string $distinctId,
         string $alias,
@@ -260,6 +298,28 @@ class LaraHog
                 $this->resolveTimestamp($timestamp),
             );
         }
+    }
+
+    /**
+     * @param  list<array{
+     *     groupType: string,
+     *     groupKey: string,
+     *     properties?: array<string, mixed>,
+     *     timestamp?: DateTimeInterface|int|float|string|null
+     * }>  $groups
+     */
+    public function groupIdentifyBatch(array $groups): void
+    {
+        $this->captureBatch(array_map(fn (array $group): array => [
+            'distinctId' => "\${$group['groupType']}_{$group['groupKey']}",
+            'event' => '$groupidentify',
+            'properties' => [
+                '$group_type' => $group['groupType'],
+                '$group_key' => $group['groupKey'],
+                '$group_set' => $group['properties'] ?? [],
+            ],
+            'timestamp' => $group['timestamp'] ?? null,
+        ], $groups));
     }
 
     public function getClient(): Client

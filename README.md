@@ -140,6 +140,15 @@ LaraHog::identify('user-123', [
 ]);
 ```
 
+Use `identifyBatch` to identify multiple users through one PostHog batch request:
+
+```php
+LaraHog::identifyBatch([
+    ['distinctId' => 'user-123', 'properties' => ['name' => 'Jane Doe']],
+    ['distinctId' => 'user-456', 'properties' => ['name' => 'John Doe']],
+]);
+```
+
 ### Aliasing identities
 
 ```php
@@ -152,6 +161,15 @@ LaraHog::alias('user-123', 'anonymous-session-abc');
 LaraHog::groupIdentify('company', 'company-456', [
     'name' => 'Acme Corp',
     'industry' => 'SaaS',
+]);
+```
+
+Use `groupIdentifyBatch` to identify multiple groups through one PostHog batch request:
+
+```php
+LaraHog::groupIdentifyBatch([
+    ['groupType' => 'company', 'groupKey' => 'company-456', 'properties' => ['name' => 'Acme Corp']],
+    ['groupType' => 'company', 'groupKey' => 'company-789', 'properties' => ['name' => 'Globex Corp']],
 ]);
 ```
 
